@@ -39,7 +39,7 @@ def delete_columns(tensor, removable_columns):
     return df
 
 
-def get_train_data(file_path, percentage=1):
+def get_train_data(file_path, percentage=1, removed_itmes=[]):
     pd.set_option('display.max_columns', None)
     pd.set_option('display.max_rows', None)
     pd.set_option('display.width', None)
@@ -79,9 +79,19 @@ def get_train_data(file_path, percentage=1):
         robot_actions.append(null_robot_action[0])
 
     Y = []
-    X = robot_actions
+    X = []
+
+    i = 0
     for tensor in tensors:
-        Y.append(delete_columns(tensor[0], removable_columns))
+        if i not in removed_itmes:
+            Y.append(delete_columns(tensor[0], removable_columns))
+        i += 1
+
+    i = 0
+    for text in robot_actions:
+        if i not in removed_itmes:
+            X.append(text)
+        i += 1
 
     ten_percent_count = int(len(robot_actions) * percentage)
     X = X[:ten_percent_count]
@@ -224,17 +234,40 @@ def shuffle_synced_lists(list1, list2):
     return list(shuffled_list1), list(shuffled_list2)
 
 
-X_train, Y_train = get_train_data(data_path, 1)
+def add_randomness(data, randomness=1, mean=0):
+    data = data.astype(float)  # Cast the DataFrame to float dtype
+    for index, row in data.iterrows():
+        for col in data.columns:
+            if col == "Time":
+                original_value = float(row[col])  # Convert original value to float
+                data.at[index, col] = float('{:.4f}'.format(original_value))
+            else:
+                original_value = float(row[col])  # Convert original value to float
+                rand_value = np.random.normal(mean, randomness)  # Generate randomness from normal distribution
+                data.at[index, col] = float('{:.4f}'.format(original_value + rand_value))
+    return data
+
+shure_delete = [22 ,35,50,51,55,72]
+relative_delete = [9,14,29,30,35,53,58,83,97,110,127,134]
+removed_items = shure_delete + relative_delete
+
+X_train, Y_train = get_train_data(data_path, 1, removed_items)
+
+
 input_outputs_dic = correct_tensors_angels(X_train, Y_train)
 probabilities_parameters = probabilities_parameters(input_outputs_dic)
 X_train, Y_train = process_tensors(input_outputs_dic)
 
-num_epochs = 10
-batch_size = 40
-learning_rate = 1
-model_save_path = r"C:\Users\reza\Desktop\transformer\results\model.pt"
+num_epochs = 25
+batch_size = 64
+learning_rate = 0.1
+model_save_path = r"C:\Users\reza\Desktop\transformer\results\model2.pt"
 
-model = AutoModel.from_pretrained("bert-base-uncased")
+model = AutoModel.from_pretrained("bert-base-uncased", num_hidden_layers=4)
+num_params = model.num_parameters()
+print("Number of parameters in the model:", num_params)
+
+
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)

@@ -131,28 +131,20 @@ def average_loss(list_1, list_2):
 
 def plot_classes(g_data, g_time, data, cl, save_path=None):
     plt.figure()  # Create a new figure for each plot
-    g_data = pd.DataFrame(g_data.detach().numpy())
-    g_time = pd.DataFrame(g_time.detach().numpy())
     plt.plot(g_time, g_data, label='generated', color='red', linewidth=2)
 
     real_data_class_tensors = correct_angels_for_multi_tensor(data[cl], cl)
-    colors = ['#0000ff', '#0c0cff', '#1919ff', '#2626ff', '#3232ff', '#3f3fff',
-              '#4c4cff', '#5959ff', '#6565ff', '#7272ff', '#7f7fff', '#8b8bff',
-              '#9898ff', '#a5a5ff', '#b1b1ff', '#bebeff', '#cbcbff', '#d8d8ff', '#d8d8ff', '#d8d8ff']
 
     i = 0
     for cl_tensors in real_data_class_tensors:
         if i < 10:
             data = pd.DataFrame(cl_tensors)
             time = pd.DataFrame(cl_tensors['Time'])
-            plt.plot(time, data, label='Array' + str(i), color='blue', linestyle='--', alpha=0.5)
+            plt.plot(time, data, label='Array' + str(i), color='blue', linestyle='--', alpha=0.2)
         i += 1
 
     plt.xlabel('Time')
     plt.ylabel(cl)
-    plt.title('generated')
-    plt.legend()
-
     if save_path:
         plt.savefig(save_path)
     else:
@@ -293,12 +285,9 @@ def get_train_data_methdo_2(file_path):
 def async_based_on_time(generated_tensors):
     generated_arrays = {label: tensor.detach().numpy() for label, tensor in generated_tensors.items()}
     generated_df = pd.DataFrame(generated_arrays)
-    generated_tensors = generated_df.apply(lambda x: x.apply(lambda y: '{:.4f}'.format(y)))
-    generated_tensors['Time'] = pd.to_numeric(generated_tensors['Time'], errors='coerce')
-    generated_tensors = generated_tensors.dropna(subset=['Time'])
-    sorted_df = generated_tensors.sort_values(by='Time')
+    sorted_df = generated_df.sort_values(by='Time')
     sorted_df = sorted_df[sorted_df['Time'] >= 0]
-    return sorted_df
+    return sorted_df.reset_index(drop=True)
 
 
 def create_mean_tiems(texts_tensors):
@@ -321,21 +310,33 @@ def create_mean_tiems(texts_tensors):
     return time_means
 
 
-def time_number_probabilities(sorted_df, text, mean_time_numbers , percentage=0.004):
+def time_number_probabilities(sorted_df, text, mean_time_numbers , percentage=2.5):
     mean_time = mean_time_numbers[text]['time']
     mean_number = mean_time_numbers[text]['number_of_times']
     np.random.seed(2)
     filtered_df = pd.DataFrame()
 
     for i in range(len(sorted_df)):
-        if (3.14 ** (2 - sorted_df.loc[i, 'Time']/mean_time - i/mean_number) >= percentage):
+        # if (3.14 ** (2 - sorted_df.loc[i, 'Time']/mean_time - i/mean_number) >= percentage):
+        if sorted_df.loc[i, 'Time'] < percentage * mean_time:
             filtered_df = pd.concat([filtered_df, sorted_df.iloc[[i]]])
     return filtered_df.reset_index(drop=True)
 
 
+def add_randomness(data, randomness=0.5, mean=0):
+    data = data.astype(float)  # Cast the DataFrame to float dtype
+    for index, row in data.iterrows():
+        for col in data.columns:
+            if col == "Time":
+                original_value = float(row[col])  # Convert original value to float
+                data.at[index, col] = float('{:.4f}'.format(original_value))
+            else:
+                original_value = float(row[col])  # Convert original value to float
+                rand_value = np.random.normal(mean, randomness)  # Generate randomness from normal distribution
+                data.at[index, col] = float('{:.4f}'.format(original_value + rand_value))
+    return data
 
 data_name = 'c1_data'
-text = 'b078_sabz'
 data_name_pkl = data_name + '.pkl'
 removable_columns = ['action', 'who', 'state']
 data_path = r'C:\Users\reza\Desktop\transformer\datasets'
@@ -343,7 +344,7 @@ data_path = os.path.join(data_path, data_name_pkl)
 num_epochs = 12
 batch_size = 40
 learning_rate = 1
-model_save_path = r"C:\Users\reza\Desktop\transformer\results\model.pt"
+model_save_path = r"C:\Users\reza\Desktop\transformer\results\model2.pt"
 save_path = r'C:\Users\reza\Desktop\transformer\results'
 if not os.path.exists(save_path):
     os.mkdir(save_path)
@@ -352,14 +353,16 @@ save_path = os.path.join(save_path, data_name)
 if not os.path.exists(save_path):
     os.mkdir(save_path)
 
-X_train, Y_train = get_train_data(data_path, 0.1)
+X_train, Y_train = get_train_data(data_path, 0.05)
 texts_tensors = get_train_data_methdo_2(data_path)
 mean_time_numbers = create_mean_tiems(texts_tensors)
 class_names = get_classes_names(Y_train)
 model = torch.load(model_save_path)
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
-X = 'b077_Narenji'
+X = 'b076_Soorati'
+# X = 'b074_Red'
+# X = 'b077_Narenji'
 tokenized_X = tokenizer(X, padding='max_length', truncation=True, max_length=19, return_tensors='pt')
 
 save_path = os.path.join(save_path, X)
@@ -370,25 +373,37 @@ output = model(**tokenized_X)
 last_state = output.last_hidden_state
 # last_state = last_state[0].detach().numpy()
 text_training_data_by_classes = preparing_training_data(data_path, X, class_names)
-j = 0
 
 time = last_state[0][0]
-generated_tensors = {}
-generated_tensors['Time'] = time
 
 print(save_path)
+j = 0
+generated_tensors = {}
+generated_tensors['Time'] = time
 for cl in class_names:
     class_data = last_state[0][j]
-    final_save_path = os.path.join(save_path, cl + 'plot.png')
-    plot_classes(class_data, time, text_training_data_by_classes, cl, final_save_path)
+    # final_save_path = os.path.join(save_path, cl + 'plot1.png')
+    # g_data = pd.DataFrame(class_data.detach().numpy())
+    # g_time = pd.DataFrame(time.detach().numpy())
+    # if j == 0:
+    #     plot_classes(g_data, g_time, text_training_data_by_classes, cl, final_save_path)
     generated_tensors[cl] = class_data
     j += 1
 
 sorted_df = async_based_on_time(generated_tensors).reset_index(drop=True)
-filtered_data = time_number_probabilities(sorted_df, X, mean_time_numbers)
+sorted_df = time_number_probabilities(sorted_df, X, mean_time_numbers, 2.5)
+sorted_df = add_randomness(sorted_df, 0.2)
+
+time = sorted_df['Time']
+jj = 0
+for cl in class_names:
+    class_data = sorted_df[cl]
+    final_save_path = os.path.join(save_path, cl + 'plot2.png')
+    plot_classes(class_data, time, text_training_data_by_classes, cl, final_save_path)
+    jj += 1
 
 final_csv_path = os.path.join(save_path, 'data.csv')
-filtered_data.to_csv(final_csv_path, index=False, sep='\t')
+sorted_df.to_csv(final_csv_path, index=False, sep='\t')
 print(final_csv_path)
 
 
