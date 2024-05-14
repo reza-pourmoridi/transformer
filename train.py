@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 import random
 
-data_name = 'c1_data'
+data_name = 'panda_tensor'
 data_name_pkl = data_name + '.pkl'
 removable_columns = ['action', 'who', 'state']
 data_path = r'C:\Users\reza\Desktop\transformer\datasets'
@@ -22,6 +22,53 @@ def turn_vector_to_tensor(vecs, dim_size):
         tensor = np.tile(vec, (dim_size, 1)).T
         tensors.append(tensor)
     return tensors
+
+
+def make_fixed_length(df, desired_length):
+    """
+    Modifies the DataFrame to have a fixed length by adding or removing rows.
+
+    Args:
+        df: The DataFrame to modify.
+        desired_length: The desired length of the DataFrame.
+
+    Returns:
+        The modified DataFrame with the specified length.
+  """
+
+    while df.shape[0] < desired_length:
+        # Generate a random index within valid bounds (excluding start and end)
+        random_index = np.random.randint(1, df.shape[0])
+        # print(random_index)
+
+        # Calculate the average values of the upper and lower index rows
+        upper_row = df.iloc[random_index - 1]
+        lower_row = df.iloc[random_index]
+        average_row = (upper_row + lower_row) / 2
+
+        # Create a new DataFrame with the average values
+        # put in the index of random_index
+        new_row_df = pd.DataFrame([average_row.values], columns=df.columns)
+
+        # Insert the new row at the specified random index
+        df = pd.concat([df.iloc[:random_index], new_row_df, df.iloc[random_index:]])
+
+        # Reset the index to maintain a continuous integer sequence
+        df = df.reset_index(drop=True)
+
+
+    while df.shape[0] > desired_length:
+        # Generate a random index within valid bounds (excluding the last index)
+        random_index = np.random.randint(0, df.shape[0] - 1)
+        # print(random_index)
+
+        # Remove the row at the specified random index
+        df = df.drop(random_index)
+
+        # Reset the index to maintain a continuous integer sequence
+        df = df.reset_index(drop=True)
+
+    return df
 
 
 def turn_tensor_to_vector(tensor):
@@ -84,7 +131,7 @@ def get_train_data(file_path, percentage=1, removed_itmes=[]):
     i = 0
     for tensor in tensors:
         if i not in removed_itmes:
-            Y.append(delete_columns(tensor[0], removable_columns))
+            Y.append(make_fixed_length(delete_columns(tensor[0], removable_columns), 768))
         i += 1
 
     i = 0
@@ -247,28 +294,27 @@ def add_randomness(data, randomness=1, mean=0):
                 data.at[index, col] = float('{:.4f}'.format(original_value + rand_value))
     return data
 
+
 shure_delete = [22 ,35,50,51,55,72]
 relative_delete = [9,14,29,30,35,53,58,83,97,110,127,134]
 removed_items = shure_delete + relative_delete
+removed_items = []
 
 X_train, Y_train = get_train_data(data_path, 1, removed_items)
 
-
 input_outputs_dic = correct_tensors_angels(X_train, Y_train)
 probabilities_parameters = probabilities_parameters(input_outputs_dic)
-X_train, Y_train = process_tensors(input_outputs_dic)
 
-num_epochs = 25
+num_epochs = 15
 batch_size = 64
-learning_rate = 0.1
-model_save_path = r"C:\Users\reza\Desktop\transformer\results\model2.pt"
+learning_rate = 0.001
+model_save_path = r"C:\Users\reza\Desktop\transformer\results\model.pt"
 
-model = AutoModel.from_pretrained("bert-base-uncased", num_hidden_layers=4)
+model = AutoModel.from_pretrained("albert-base-v1")
 num_params = model.num_parameters()
 print("Number of parameters in the model:", num_params)
 
-
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+tokenizer = AutoTokenizer.from_pretrained("albert-base-v1")
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 for epoch in range(num_epochs):

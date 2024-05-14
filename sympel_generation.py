@@ -284,13 +284,56 @@ def add_randomness(data, randomness=0.5, mean=0):
                 rand_value = np.random.normal(mean, randomness)  # Generate randomness from normal distribution
                 data.at[index, col] = float('{:.4f}'.format(original_value + rand_value))
     return data
+def model_tokenizer(words, tokenizer, letngth=19, desired_embed_size=64):
+    embeddings_list = []
+    for word in words:
+        # Tokenize the word and obtain embeddings directly
+        embeddings = tokenizer(word, padding='max_length', truncation=True, max_length=letngth, return_tensors='pt')
+        embeddings_repeated = embeddings['input_ids'].repeat(desired_embed_size, 1)
+        reversed_tensor = embeddings_repeated.T
+        embeddings_list.append(reversed_tensor.float())
+
+    stacked_embeddings = torch.stack(embeddings_list)
+    return stacked_embeddings
+
+import torch.nn as nn
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=1000):
+        super(PositionalEncoding, self).__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        return x + self.pe[:x.size(0), :]
+
+class TransformerModel(nn.Module):
+    def __init__(self, input_size, output_size, num_layers=6, hidden_size=512, num_heads=8, dropout=0.1):
+        super(TransformerModel, self).__init__()
+        self.embedding = nn.Linear(input_size, hidden_size)
+        self.positional_encoding = PositionalEncoding(hidden_size)
+        encoder_layers = nn.TransformerEncoderLayer(hidden_size, num_heads, hidden_size, dropout)
+        self.encoder = nn.TransformerEncoder(encoder_layers, num_layers)
+        self.decoder = nn.Linear(hidden_size, output_size)
+
+    def forward(self, src):
+        src = self.embedding(src)
+        src = self.positional_encoding(src)
+        output = self.encoder(src)
+        output = self.decoder(output)
+        return output
 
 data_name = 'panda_tensor_1'
 data_name_pkl = data_name + '.pkl'
 removable_columns = ['action', 'who', 'state']
 data_path = r'C:\Users\reza\Desktop\transformer\datasets'
 data_path = os.path.join(data_path, data_name_pkl)
-model_save_path = r"C:\Users\reza\Desktop\transformer\results\model.pt"
+model_save_path = r"C:\Users\reza\Desktop\transformer\transformer_model.pth"
 save_path = r'C:\Users\reza\Desktop\transformer\results'
 if not os.path.exists(save_path):
     os.mkdir(save_path)
@@ -304,35 +347,37 @@ texts_tensors = get_train_data_methdo_2(data_path)
 mean_time_numbers = create_mean_tiems(texts_tensors)
 class_names = get_classes_names(Y_train)
 model = torch.load(model_save_path)
-tokenizer = AutoTokenizer.from_pretrained("albert-base-v1")
+tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
 X = 'b076_Soorati'
-# X = 'b074_Red'
-# X = 'b077_Narenji'
-tokenized_X = tokenizer(X, padding='max_length', truncation=True, max_length=19, return_tensors='pt')
+
+tokenized_X_train = model_tokenizer([X], tokenizer)
+tokenized_X = tokenized_X_train[0]  # Cast the input tensor to float
 
 save_path = os.path.join(save_path, X)
 if not os.path.exists(save_path):
     os.mkdir(save_path)
 
-output = model(**tokenized_X)
 
-last_state = output.last_hidden_state
+model = TransformerModel(input_size=64, output_size=64)
 
-print(last_state)
-print(last_state.shape)
-raise Exception
+# Load the saved parameters into the model
+model.load_state_dict(torch.load('transformer_model.pth'))
+
+# Set the model to evaluation mode
+model.eval()
+
+output = model(tokenized_X)
 # last_state = last_state[0].detach().numpy()
 text_training_data_by_classes = preparing_training_data(data_path, X, class_names)
 
-time = last_state[0][0]
-
+time = output[0][0]
 print(save_path)
 j = 0
 generated_tensors = {}
 generated_tensors['Time'] = time
 for cl in class_names:
-    class_data = last_state[0][j]
+    class_data = output[0][j]
     final_save_path = os.path.join(save_path, cl + 'plot1.png')
     g_data = pd.DataFrame(class_data.detach().numpy())
     g_time = pd.DataFrame(time.detach().numpy())
